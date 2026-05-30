@@ -1,0 +1,26 @@
+resources:
+  pipelines:
+    btc_transformations:
+      name: "[${bundle.target}] BTC Transformations (silver + gold + forecast)"
+      serverless: true
+      continuous: false
+      catalog: ${var.catalog}
+      schema: silver
+      edition: ADVANCED
+
+      libraries:
+        - glob:
+            include: ../src/transformations/01_silver/**
+        - glob:
+            include: ../src/transformations/02_gold/**
+
+      configuration:
+        target_catalog: ${var.catalog}
+        bronze_table: ${var.catalog}.bronze.${var.table}
+
+      notifications:
+        - email_recipients:
+            - deydson077@gmail.com
+          alerts:
+            - on-update-failure
+            - on-flow-failure

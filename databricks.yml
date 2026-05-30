@@ -1,0 +1,36 @@
+bundle:
+  name: analytics-btc
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:          { default: z_bitcoin }
+  schema:           { default: bronze }
+  table:            { default: bybit_trades }
+  ws_url:           { default: wss://stream.bybit.com/v5/public/spot }
+  topic:            { default: publicTrade.BTCUSDT }
+  zerobus_endpoint: { default: 2627475753354530.zerobus.us-east-2.cloud.databricks.com }
+  workspace_url:    { default: https://dbc-ea4afa09-1cae.cloud.databricks.com }
+  secret_scope:     { default: btc-binance-secret }
+  pause_status:     { default: PAUSED }
+  sql_warehouse_id: { default: 2f38b2c639dedf2c }
+
+targets:
+  dev:
+    default: true
+    mode: development
+    workspace:
+      profile: dev_deydson
+      host: https://dbc-ea4afa09-1cae.cloud.databricks.com
+
+  prod:
+    mode: production
+    workspace:
+      profile: prod_deydson
+      host: https://dbc-ea4afa09-1cae.cloud.databricks.com
+      root_path: /Workspace/Users/deydson011@gmail.com/.bundle/${bundle.name}/${bundle.target}
+    run_as:
+      service_principal_name: 50a10526-12c5-44b9-906a-b52304b6f92c
+    variables:
+      pause_status: PAUSED

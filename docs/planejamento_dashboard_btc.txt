@@ -1,0 +1,763 @@
+================================================================================
+PLANEJAMENTO DASHBOARD BTC - ANALYTICS & FORECAST
+================================================================================
+
+Projeto: analytics-btc
+Data: 2026-05-22
+Metric Views: mtv_btc_intraday, mtv_btc_forecast, mtv_btc_price_timeline
+
+================================================================================
+1. ANALISE DE PRECO
+================================================================================
+
+1.1 CANDLESTICK CHART
+---------------------
+Descricao: Grafico de velas tradicional para analise tecnica
+Metricas:
+  - preco_abertura (Open)
+  - preco_maximo (High)
+  - preco_minimo (Low)
+  - preco_fechamento (Close)
+Metric View: mtv_btc_intraday
+Graos sugeridos: 15m, 1h, 4h
+Visualizacao: Candlestick chart
+
+Query:
+  SELECT
+    ts_4h,
+    MEASURE(preco_abertura) AS open,
+    MEASURE(preco_maximo) AS high,
+    MEASURE(preco_minimo) AS low,
+    MEASURE(preco_fechamento) AS close
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_4h
+  ORDER BY ts_4h
+
+
+1.2 PRECO VS VWAP
+-----------------
+Descricao: Comparacao entre preco de fechamento e preco medio ponderado
+Insight: Desvio do VWAP indica oportunidade (acima = sobrecomprado, abaixo = sobrevendido)
+Metricas:
+  - preco_fechamento
+  - vwap
+Metric View: mtv_btc_intraday
+Visualizacao: Linha dupla (2 series)
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(preco_fechamento) AS preco,
+    MEASURE(vwap) AS vwap,
+    (MEASURE(preco_fechamento) - MEASURE(vwap)) / MEASURE(vwap) * 100 AS desvio_vwap_pct
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 3
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+1.3 RETORNO POR PERIODO
+-----------------------
+Descricao: Variacao percentual do preco por periodo
+Insight: Identifica periodos de alta/baixa performance
+Metricas:
+  - retorno_periodo
+Metric View: mtv_btc_intraday
+Visualizacao: Barras (verde positivo, vermelho negativo)
+
+Query:
+  SELECT
+    ts_4h,
+    MEASURE(retorno_periodo) AS retorno_pct
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_4h
+  ORDER BY ts_4h
+
+
+================================================================================
+2. ANALISE DE VOLUME
+================================================================================
+
+2.1 VOLUME COM BREAKDOWN BUY/SELL
+---------------------------------
+Descricao: Volume decomposto em compras e vendas
+Insight: Mostra pressao direcional do mercado
+Metricas:
+  - volume_compra
+  - volume_venda
+Metric View: mtv_btc_intraday
+Visualizacao: Stacked bar chart
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(volume_compra) AS buy_volume,
+    MEASURE(volume_venda) AS sell_volume,
+    MEASURE(volume_btc) AS total_volume
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 1
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+2.2 VOLUME FINANCEIRO (USD)
+---------------------------
+Descricao: Valor financeiro total negociado
+Insight: Mostra liquidez e interesse do mercado
+Metricas:
+  - volume_usd
+Metric View: mtv_btc_intraday
+Visualizacao: Barras com linha de tendencia
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(volume_usd) AS volume_usd
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+2.3 BLOCK TRADES (ATIVIDADE INSTITUCIONAL)
+------------------------------------------
+Descricao: Quantidade de operacoes de grande porte
+Insight: Sinaliza atividade de whales/institucionais
+Metricas:
+  - qtd_block_trades
+  - volume_usd (correlacao)
+Metric View: mtv_btc_intraday
+Visualizacao: Scatter plot ou timeline com marcadores
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(qtd_block_trades) AS block_trades,
+    MEASURE(volume_usd) AS volume_usd,
+    MEASURE(preco_fechamento) AS preco
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+    AND MEASURE(qtd_block_trades) > 0
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+2.4 VOLUME MEDIO POR TRADE
+--------------------------
+Descricao: Tamanho medio das operacoes
+Insight: Trade size crescente pode indicar entrada institucional
+Metricas:
+  - volume_por_trade
+Metric View: mtv_btc_intraday
+Visualizacao: Linha
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(volume_por_trade) AS avg_trade_size,
+    MEASURE(qtd_trades) AS num_trades
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+2.5 FREQUENCIA DE TRADES
+------------------------
+Descricao: Quantidade de trades por minuto
+Insight: Alta frequencia = alta liquidez/volatilidade
+Metricas:
+  - trades_por_minuto
+  - qtd_trades
+Metric View: mtv_btc_intraday
+Visualizacao: Area chart
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(trades_por_minuto) AS trades_min,
+    MEASURE(qtd_trades) AS total_trades
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 3
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+================================================================================
+3. ANALISE DE FLUXO / SENTIMENTO
+================================================================================
+
+3.1 TAKER IMBALANCE
+-------------------
+Descricao: Razao entre volume de compra e venda
+Insight: Positivo = pressao compradora (bulls), Negativo = pressao vendedora (bears)
+Metricas:
+  - desequilibrio_taker
+Metric View: mtv_btc_intraday
+Visualizacao: Area chart (verde acima de 0, vermelho abaixo)
+
+Query:
+  SELECT
+    ts_15m,
+    MEASURE(desequilibrio_taker) AS imbalance
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 1
+  GROUP BY ts_15m
+  ORDER BY ts_15m
+
+
+3.2 DELTA CUMULATIVO
+--------------------
+Descricao: Soma acumulada de (compras - vendas) ao longo do tempo
+Insight: Tendencia do fluxo de ordens
+Metricas:
+  - volume_compra
+  - volume_venda
+Metric View: mtv_btc_intraday
+Visualizacao: Linha acumulada
+
+Query:
+  SELECT
+    ts_1h,
+    SUM(MEASURE(volume_compra) - MEASURE(volume_venda))
+      OVER (ORDER BY ts_1h) AS delta_cumulativo
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+3.3 SENTIMENTO POR SESSAO DE MERCADO
+------------------------------------
+Descricao: Comparacao de sentimento entre Asia, Europa e Americas
+Insight: Qual regiao esta mais bullish/bearish?
+Metricas:
+  - desequilibrio_taker
+  - volume_usd
+Dimensao: sessao_mercado
+Metric View: mtv_btc_intraday
+Visualizacao: Bar chart comparativo ou radar chart
+
+Query:
+  SELECT
+    sessao_mercado,
+    MEASURE(desequilibrio_taker) AS sentimento,
+    MEASURE(volume_usd) AS volume,
+    MEASURE(qtd_block_trades) AS whales
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY sessao_mercado
+  ORDER BY volume DESC
+
+
+3.4 WHALE WATCH (MONITORAMENTO INSTITUCIONAL)
+---------------------------------------------
+Descricao: Timeline de block trades com contexto de preco
+Insight: Quando e onde os grandes players estao operando
+Metricas:
+  - qtd_block_trades
+  - volume_usd
+  - preco_fechamento
+  - desequilibrio_taker
+Metric View: mtv_btc_intraday
+Visualizacao: Timeline com marcadores ou scatter
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(qtd_block_trades) AS blocks,
+    MEASURE(volume_usd) AS volume,
+    MEASURE(preco_fechamento) AS preco,
+    MEASURE(desequilibrio_taker) AS direcao
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_1h
+  HAVING MEASURE(qtd_block_trades) > 0
+  ORDER BY ts_1h
+
+
+================================================================================
+4. ANALISE DE VOLATILIDADE
+================================================================================
+
+4.1 RANGE PERCENTUAL
+--------------------
+Descricao: Amplitude de preco como percentual
+Insight: Periodos de alta volatilidade
+Metricas:
+  - range_pct
+Metric View: mtv_btc_intraday
+Visualizacao: Bar chart
+
+Query:
+  SELECT
+    ts_4h,
+    MEASURE(range_pct) AS volatilidade_pct,
+    MEASURE(range_usd) AS range_absoluto
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 7
+  GROUP BY ts_4h
+  ORDER BY ts_4h
+
+
+4.2 BANDAS DE PRECO
+-------------------
+Descricao: Preco com maximo e minimo do periodo
+Insight: Visualiza range de negociacao
+Metricas:
+  - preco_maximo
+  - preco_minimo
+  - vwap (linha central)
+Metric View: mtv_btc_intraday
+Visualizacao: Area sombreada com linha central
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(preco_maximo) AS high,
+    MEASURE(preco_minimo) AS low,
+    MEASURE(vwap) AS vwap
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 3
+  GROUP BY ts_1h
+  ORDER BY ts_1h
+
+
+4.3 VOLATILIDADE POR SESSAO DE MERCADO
+--------------------------------------
+Descricao: Comparacao de volatilidade entre regioes
+Insight: Qual sessao tem mais movimento de preco?
+Metricas:
+  - range_pct
+Dimensao: sessao_mercado
+Metric View: mtv_btc_intraday
+Visualizacao: Bar chart comparativo
+
+Query:
+  SELECT
+    sessao_mercado,
+    AVG(MEASURE(range_pct)) AS vol_media,
+    MAX(MEASURE(range_pct)) AS vol_max,
+    MIN(MEASURE(range_pct)) AS vol_min,
+    SUM(MEASURE(volume_usd)) AS volume_total
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 30
+  GROUP BY sessao_mercado
+  ORDER BY vol_media DESC
+
+
+4.4 CORRELACAO VOLUME X VOLATILIDADE
+------------------------------------
+Descricao: Relacao entre volume e movimento de preco
+Insight: Alto volume com alta vol = movimento significativo
+Metricas:
+  - volume_usd
+  - range_pct
+Metric View: mtv_btc_intraday
+Visualizacao: Scatter plot
+
+Query:
+  SELECT
+    ts_1h,
+    MEASURE(volume_usd) AS volume,
+    MEASURE(range_pct) AS volatilidade
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 30
+  GROUP BY ts_1h
+
+
+================================================================================
+5. ANALISE DE FORECAST
+================================================================================
+
+5.1 LINHA DE PRECO HISTORICO + FORECAST
+---------------------------------------
+Descricao: Grafico principal unificando dados reais e previsao
+Insight: Visualiza continuidade entre historico e expectativa
+Metricas:
+  - preco
+  - tipo_dado (Historico vs Previsao)
+Metric View: mtv_btc_price_timeline
+Visualizacao: Line chart com 2 series
+
+Query:
+  SELECT
+    ts_1h AS horario,
+    tipo_dado,
+    MEASURE(preco) AS preco
+  FROM z_bitcoin.gold.mtv_btc_price_timeline
+  GROUP BY ts_1h, tipo_dado
+  ORDER BY ts_1h
+
+
+5.2 CONE DE PREVISAO COM BANDAS DE CONFIANCA
+--------------------------------------------
+Descricao: Forecast com intervalo de confianca 95%
+Insight: Visualiza incerteza do modelo
+Metricas:
+  - preco_previsto
+  - limite_inferior_95
+  - limite_superior_95
+Metric View: mtv_btc_forecast
+Visualizacao: Linha com area sombreada (confidence band)
+
+Query:
+  SELECT
+    forecast_ts_1h,
+    MEASURE(preco_previsto) AS forecast,
+    MEASURE(limite_inferior_95) AS lower_95,
+    MEASURE(limite_superior_95) AS upper_95
+  FROM z_bitcoin.gold.mtv_btc_forecast
+  GROUP BY forecast_ts_1h
+  ORDER BY forecast_ts_1h
+
+
+5.3 INCERTEZA DO MODELO AO LONGO DO HORIZONTE
+---------------------------------------------
+Descricao: Como a confianca do modelo diminui com o tempo
+Insight: Forecast de curto prazo e mais confiavel
+Metricas:
+  - largura_intervalo_pct
+Dimensao: horizonte_bucket ou forecast_ts
+Metric View: mtv_btc_forecast
+Visualizacao: Line chart crescente
+
+Query:
+  SELECT
+    horizonte_bucket,
+    AVG(MEASURE(largura_intervalo_pct)) AS incerteza_media,
+    MAX(MEASURE(largura_intervalo_pct)) AS incerteza_max
+  FROM z_bitcoin.gold.mtv_btc_forecast
+  GROUP BY horizonte_bucket
+  ORDER BY
+    CASE horizonte_bucket
+      WHEN '0-1h' THEN 1
+      WHEN '1-4h' THEN 2
+      WHEN '4-12h' THEN 3
+      ELSE 4
+    END
+
+
+5.4 DIRECAO PREVISTA
+--------------------
+Descricao: Variacao percentual esperada pelo modelo
+Insight: O modelo preve alta ou baixa?
+Metricas:
+  - variacao_prevista_pct
+Metric View: mtv_btc_forecast
+Visualizacao: KPI card ou gauge
+
+Query:
+  SELECT
+    MEASURE(variacao_prevista_pct) AS direcao_pct,
+    MEASURE(preco_previsto_inicio) AS preco_inicial,
+    MEASURE(preco_previsto_fim) AS preco_final,
+    CASE
+      WHEN MEASURE(variacao_prevista_pct) > 0 THEN 'ALTA'
+      WHEN MEASURE(variacao_prevista_pct) < 0 THEN 'BAIXA'
+      ELSE 'LATERAL'
+    END AS tendencia
+  FROM z_bitcoin.gold.mtv_btc_forecast
+
+
+5.5 LARGURA DO INTERVALO EM USD
+-------------------------------
+Descricao: Incerteza absoluta em dolares
+Insight: Quanto o preco pode variar segundo o modelo
+Metricas:
+  - largura_intervalo_usd
+Metric View: mtv_btc_forecast
+Visualizacao: Area chart
+
+Query:
+  SELECT
+    forecast_ts_1h,
+    MEASURE(largura_intervalo_usd) AS spread_usd,
+    MEASURE(preco_previsto) AS forecast
+  FROM z_bitcoin.gold.mtv_btc_forecast
+  GROUP BY forecast_ts_1h
+  ORDER BY forecast_ts_1h
+
+
+================================================================================
+6. KPI CARDS (RESUMO EXECUTIVO)
+================================================================================
+
+6.1 PRECO ATUAL
+---------------
+Query:
+  SELECT MAX_BY(MEASURE(preco_fechamento), ts_15m) AS preco_atual
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 1 HOUR
+
+6.2 VARIACAO 24H
+----------------
+Query:
+  SELECT
+    (MAX_BY(MEASURE(preco_fechamento), ts_15m) - MIN_BY(MEASURE(preco_abertura), ts_15m))
+    / MIN_BY(MEASURE(preco_abertura), ts_15m) * 100 AS var_24h_pct
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR
+
+6.3 VOLUME 24H
+--------------
+Query:
+  SELECT SUM(MEASURE(volume_usd)) AS volume_24h
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR
+
+6.4 SENTIMENTO ATUAL
+--------------------
+Query:
+  SELECT MEASURE(desequilibrio_taker) AS sentimento
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 1 HOUR
+
+6.5 FORECAST PROXIMO 1H
+-----------------------
+Query:
+  SELECT
+    MEASURE(preco_previsto) AS forecast_1h,
+    MEASURE(largura_intervalo_pct) AS incerteza_pct
+  FROM z_bitcoin.gold.mtv_btc_forecast
+  WHERE horizonte_bucket = '0-1h'
+
+6.6 QUANTIDADE DE TRADES 24H
+----------------------------
+Query:
+  SELECT SUM(MEASURE(qtd_trades)) AS trades_24h
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR
+
+6.7 VOLATILIDADE MEDIA 24H
+--------------------------
+Query:
+  SELECT AVG(MEASURE(range_pct)) AS vol_media_24h
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR
+
+6.8 BLOCK TRADES 24H
+--------------------
+Query:
+  SELECT SUM(MEASURE(qtd_block_trades)) AS blocks_24h
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR
+
+
+================================================================================
+7. ANALISES TEMPORAIS (PADROES)
+================================================================================
+
+7.1 HEATMAP HORA X DIA DA SEMANA
+--------------------------------
+Descricao: Identifica padroes de volume/volatilidade por hora e dia
+Insight: Quando ha mais liquidez/movimento?
+Metricas:
+  - volume_usd
+  - range_pct
+Dimensoes: HOUR(ts), DAYOFWEEK(ts)
+Metric View: mtv_btc_intraday
+Visualizacao: Heatmap
+
+Query:
+  SELECT
+    HOUR(ts_1h) AS hora,
+    DAYOFWEEK(ts_1h) AS dia_semana,
+    SUM(MEASURE(volume_usd)) AS volume,
+    AVG(MEASURE(range_pct)) AS volatilidade
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 30
+  GROUP BY HOUR(ts_1h), DAYOFWEEK(ts_1h)
+
+
+7.2 PERFORMANCE POR SESSAO
+--------------------------
+Descricao: Comparacao de retorno medio por sessao geografica
+Insight: Qual mercado contribui mais para alta/baixa?
+Metricas:
+  - retorno_periodo
+Dimensao: sessao_mercado
+Metric View: mtv_btc_intraday
+Visualizacao: Bar chart
+
+Query:
+  SELECT
+    sessao_mercado,
+    AVG(MEASURE(retorno_periodo)) AS retorno_medio,
+    SUM(MEASURE(volume_usd)) AS volume_total,
+    COUNT(*) AS periodos
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 30
+  GROUP BY sessao_mercado
+
+
+7.3 SAZONALIDADE INTRADAY
+-------------------------
+Descricao: Padrao de volume/volatilidade ao longo do dia
+Insight: Horarios de pico de liquidez
+Metricas:
+  - volume_usd
+  - range_pct
+  - qtd_trades
+Dimensao: HOUR(ts)
+Metric View: mtv_btc_intraday
+Visualizacao: Line chart por hora (0-23)
+
+Query:
+  SELECT
+    HOUR(ts_1h) AS hora_utc,
+    AVG(MEASURE(volume_usd)) AS volume_medio,
+    AVG(MEASURE(range_pct)) AS vol_media,
+    AVG(MEASURE(qtd_trades)) AS trades_medio
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 30
+  GROUP BY HOUR(ts_1h)
+  ORDER BY hora_utc
+
+
+7.4 TENDENCIA SEMANAL
+---------------------
+Descricao: Performance agregada por dia da semana
+Insight: Dias com melhor/pior performance historica
+Metricas:
+  - retorno_periodo
+  - volume_usd
+Dimensao: DAYOFWEEK(ts)
+Metric View: mtv_btc_intraday
+Visualizacao: Bar chart
+
+Query:
+  SELECT
+    DAYOFWEEK(data) AS dia_semana,
+    CASE DAYOFWEEK(data)
+      WHEN 1 THEN 'Domingo'
+      WHEN 2 THEN 'Segunda'
+      WHEN 3 THEN 'Terca'
+      WHEN 4 THEN 'Quarta'
+      WHEN 5 THEN 'Quinta'
+      WHEN 6 THEN 'Sexta'
+      WHEN 7 THEN 'Sabado'
+    END AS dia_nome,
+    AVG(MEASURE(retorno_periodo)) AS retorno_medio,
+    SUM(MEASURE(volume_usd)) AS volume_total
+  FROM z_bitcoin.gold.mtv_btc_intraday
+  WHERE data >= CURRENT_DATE() - 90
+  GROUP BY DAYOFWEEK(data)
+  ORDER BY dia_semana
+
+
+================================================================================
+8. LAYOUT SUGERIDO DO DASHBOARD
+================================================================================
+
++-------------------------------------------------------------------------+
+|  PRECO       VOL 24H      VAR 24H     SENTIMENTO    FORECAST 1H         |
+|  $108,234    $2.4B        +2.3%       +15% Bulls    $109,100 (Alta)     |
++-------------------------------------------------------------------------+
+|                                                                         |
+|   [GRAFICO PRINCIPAL: Historico + Forecast com bandas de confianca]     |
+|   Metric View: mtv_btc_price_timeline                                   |
+|   Tipo: Line chart com area sombreada                                   |
+|                                                                         |
++------------------------------------+------------------------------------+
+|  [VOLUME BUY/SELL STACKED]         |  [TAKER IMBALANCE]                 |
+|  Metricas: volume_compra/venda     |  Metrica: desequilibrio_taker      |
+|  Tipo: Stacked bar                 |  Tipo: Area chart                  |
++------------------------------------+------------------------------------+
+|  [VOLATILIDADE POR SESSAO]         |  [INCERTEZA DO FORECAST]           |
+|  Metrica: range_pct                |  Metrica: largura_intervalo_pct    |
+|  Dimensao: sessao_mercado          |  Dimensao: horizonte_bucket        |
+|  Tipo: Bar chart                   |  Tipo: Line chart                  |
++------------------------------------+------------------------------------+
+|  [CANDLESTICK 4H]                  |  [HEATMAP HORA X DIA]              |
+|  Metricas: OHLC                    |  Metricas: volume_usd              |
+|  Tipo: Candlestick                 |  Tipo: Heatmap                     |
++------------------------------------+------------------------------------+
+
+
+================================================================================
+9. METRIC VIEWS DISPONIVEIS
+================================================================================
+
+9.1 mtv_btc_intraday
+--------------------
+Fonte: z_bitcoin.gold.f_trade_analytics
+Graos: 15m, 30m, 1h, 4h
+Uso: KPIs de trade, OHLC, volume, fluxo, volatilidade
+
+Dimensoes:
+  - symbol (Ativo)
+  - ts_15m, ts_30m, ts_1h, ts_4h (Horarios multi-grao)
+  - data (Data)
+  - sessao_mercado (Asia/Europa/Americas)
+
+Medidas:
+  - preco_abertura, preco_maximo, preco_minimo, preco_fechamento (OHLC)
+  - vwap (Preco medio ponderado)
+  - volume_btc, volume_usd (Volume)
+  - qtd_trades, trades_por_minuto (Atividade)
+  - volume_compra, volume_venda, desequilibrio_taker (Fluxo)
+  - qtd_block_trades (Institucional)
+  - range_usd, range_pct (Volatilidade)
+  - retorno_periodo (Performance)
+  - volume_por_trade (Intensidade)
+
+
+9.2 mtv_btc_forecast
+--------------------
+Fonte: z_bitcoin.gold.f_forecast
+Graos: 15m, 30m, 1h, 4h
+Uso: Metricas de previsao, confianca, horizonte
+
+Dimensoes:
+  - symbol (Ativo)
+  - forecast_ts_15m, forecast_ts_30m, forecast_ts_1h, forecast_ts_4h (Horarios)
+  - horizonte_bucket (0-1h, 1-4h, 4-12h, 12-24h)
+  - data_previsao (Data)
+
+Medidas:
+  - preco_previsto, preco_previsto_inicio, preco_previsto_fim (Forecast)
+  - limite_inferior_95, limite_superior_95 (Intervalo confianca)
+  - largura_intervalo_usd, largura_intervalo_pct (Incerteza)
+  - variacao_prevista_pct (Direcao)
+  - qtd_pontos_previsao, horizonte_minutos (Cobertura)
+
+
+9.3 mtv_btc_price_timeline
+--------------------------
+Fonte: UNION de f_trade_analytics + f_forecast
+Graos: 15m, 30m, 1h, 4h
+Uso: Grafico unificado historico + forecast
+
+Dimensoes:
+  - symbol (Ativo)
+  - tipo_dado (Historico vs Previsao)
+  - ts_15m, ts_30m, ts_1h, ts_4h (Horarios)
+  - data (Data)
+
+Medidas:
+  - preco, preco_inicio, preco_fim (Preco unificado)
+  - limite_inferior, limite_superior (Bandas - so forecast)
+  - qtd_pontos (Cobertura)
+
+
+================================================================================
+10. PROXIMOS PASSOS
+================================================================================
+
+[ ] Criar dashboard Lakeview com layout sugerido
+[ ] Configurar refresh automatico das metric views
+[ ] Adicionar alertas SQL para:
+    - Preco fora do intervalo de confianca
+    - Volume anormal (>2x media)
+    - Taker imbalance extremo (>50% ou <-50%)
+    - Block trades acima de threshold
+[ ] Considerar materialization para queries frequentes
+[ ] Adicionar metricas de acuracia do forecast (apos coleta de dados reais)
+
+
+================================================================================
+FIM DO DOCUMENTO
+================================================================================

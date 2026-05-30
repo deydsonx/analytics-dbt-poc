@@ -1,0 +1,42 @@
+resources:
+  jobs:
+    Transformations:
+      name: "[${bundle.target}] transformations"
+      schedule:
+        quartz_cron_expression: "0 */5 * * * ?"
+        timezone_id: UTC
+        pause_status: ${var.pause_status}
+      max_concurrent_runs: 1
+      
+      tasks:
+        - task_key: refresh_pipeline
+          timeout_seconds: 900            # ✅ 15min timeout
+          max_retries: 1                  # ✅ Retry em falhas transientes
+          min_retry_interval_millis: 60000
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.btc_transformations.id}
+            full_refresh: false
+
+        - task_key: mtv_btc_forecast
+          depends_on:
+            - task_key: refresh_pipeline
+          timeout_seconds: 120
+          max_retries: 1
+          sql_task:
+            warehouse_id: ${var.sql_warehouse_id}
+            file:
+              path: ../src/transformations/03_semantic/mtv_btc_forecast.sql
+
+        - task_key: mtv_btc_intraday
+          depends_on:
+            - task_key: refresh_pipeline
+          timeout_seconds: 120
+          max_retries: 1
+          sql_task:
+            warehouse_id: ${var.sql_warehouse_id}
+            file:
+              path: ../src/transformations/03_semantic/mtv_btc_intraday.sql
+
+      email_notifications:
+        on_failure:
+          - deydson077@gmail.com

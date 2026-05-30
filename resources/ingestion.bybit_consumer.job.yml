@@ -1,0 +1,36 @@
+resources:
+  jobs:
+    bybit_consumer:
+      name: "[${bundle.target}] BTC Bybit -> ZeroBus Consumer"
+
+      continuous:
+        pause_status: ${var.pause_status}
+
+      max_concurrent_runs: 1
+
+      tasks:
+        - task_key: consume
+          python_wheel_task:
+            package_name: ingestion_btc
+            entry_point: ingestion_btc
+            parameters:
+              - "--workspace-url=${var.workspace_url}"
+              - "--zerobus-endpoint=${var.zerobus_endpoint}"
+              - "--secret-scope=${var.secret_scope}"
+              - "--catalog=${var.catalog}"
+              - "--schema=${var.schema}"
+              - "--table=${var.table}"
+              - "--ws-url=${var.ws_url}"
+              - "--topic=${var.topic}"
+          environment_key: default
+
+      environments:
+        - environment_key: default
+          spec:
+            client: "2"
+            dependencies:
+              - ../dist/ingestion_btc-1.0.0-py3-none-any.whl
+
+      email_notifications:
+        on_failure:
+          - deydson077@gmail.com

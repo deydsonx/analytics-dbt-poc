@@ -2,8 +2,8 @@
 -- METRIC VIEW: z_bitcoin.gold.mtv_btc_intraday
 --
 -- Camada semântica para BI / AI-BI / Genie sobre analytics de trades BTC.
--- Fonte : z_bitcoin.gold.f_trade_analytics (base de 15 minutos)
--- Grãos : 15m / 30m / 1h / 4h (múltiplos de 15 — menores não deriváveis)
+-- Fonte : z_bitcoin.gold.f_trade_analytics (base de 1 minuto)
+-- Grãos : 5m / 10m / 15m / 20m / 30m / 1h / 4h (f_trade_analytics é 1min)
 --
 -- Executar APÓS o pipeline `gold_transformations` ter sido atualizado ao menos 1×.
 -- Sintaxe verificada contra docs Databricks (Metric Views, Mai 2026): YAML v1.1
@@ -13,7 +13,7 @@ CREATE OR REPLACE VIEW z_bitcoin.gold.mtv_btc_intraday
 WITH METRICS LANGUAGE YAML
 AS $$
 version: 1.1
-comment: "KPIs de trade BTC intraday baseado em f_trade_analytics. Dimensões temporais multi-grão: 15m / 30m / 1h / 4h."
+comment: "KPIs de trade BTC intraday baseado em f_trade_analytics. Dimensões temporais multi-grão: 5m / 10m / 15m / 20m / 30m / 1h / 4h."
 
 source: z_bitcoin.gold.f_trade_analytics
 
@@ -33,15 +33,40 @@ dimensions:
       - "coin"
 
 # ----- Dimensões temporais multi-grão (BI escolhe uma por query) ----------
+  - name: ts_5m
+    expr: CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(window_start) / 300) * 300) AS TIMESTAMP)
+    display_name: "Horário 5min"
+    comment: "Timestamp truncado para janela de 5 minutos"
+    synonyms:
+      - "5 minutos"
+      - "cinco minutos"
+
+  - name: ts_10m
+    expr: CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(window_start) / 600) * 600) AS TIMESTAMP)
+    display_name: "Horário 10min"
+    comment: "Timestamp truncado para janela de 10 minutos"
+    synonyms:
+      - "10 minutos"
+      - "dez minutos"
+
   - name: ts_15m
-    expr: window_start
+    expr: CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(window_start) / 900) * 900) AS TIMESTAMP)
     display_name: "Horário 15min"
-    comment: "Início da janela de 15 minutos (grão base)"
+    comment: "Timestamp truncado para janela de 15 minutos"
     synonyms:
       - "data hora"
       - "timestamp"
       - "quando"
       - "horario"
+      - "15 minutos"
+
+  - name: ts_20m
+    expr: CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(window_start) / 1200) * 1200) AS TIMESTAMP)
+    display_name: "Horário 20min"
+    comment: "Timestamp truncado para janela de 20 minutos"
+    synonyms:
+      - "20 minutos"
+      - "vinte minutos"
 
   - name: ts_30m
     expr: CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(window_start) / 1800) * 1800) AS TIMESTAMP)
@@ -100,8 +125,10 @@ measures:
     comment: "Preço de abertura do primeiro candle do período"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "open"
       - "abertura"
@@ -113,8 +140,10 @@ measures:
     comment: "Maior preço atingido no período"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "high"
       - "topo"
@@ -127,8 +156,10 @@ measures:
     comment: "Menor preço atingido no período"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "low"
       - "fundo"
@@ -141,13 +172,29 @@ measures:
     comment: "Preço de fechamento do último candle do período"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "close"
       - "fechamento"
       - "ultimo preco"
       - "preco atual"
+
+  - name: preco_medio
+    expr: AVG((high_price + low_price) / 2)
+    display_name: "Preço Médio (HL/2)"
+    comment: "Média entre máximo e mínimo (typical price simplificado)"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "midpoint"
+      - "ponto medio"
 
 # ----- Volume / VWAP (componentes aditivos mantêm VWAP correto) -----------
   - name: vwap
@@ -156,8 +203,10 @@ measures:
     comment: "Preço médio ponderado por volume (Volume Weighted Average Price)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "preco medio"
       - "preco ponderado"
@@ -169,7 +218,9 @@ measures:
     comment: "Volume total negociado em BTC"
     format:
       type: number
-      decimals: 4
+      decimal_places:
+        type: exact
+        places: 4
     synonyms:
       - "volume"
       - "quantidade"
@@ -181,8 +232,10 @@ measures:
     comment: "Volume financeiro total em dólares"
     format:
       type: currency
-      currency: USD
-      decimals: 0
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 0
     synonyms:
       - "notional"
       - "valor negociado"
@@ -196,7 +249,9 @@ measures:
     comment: "Número total de negociações executadas"
     format:
       type: number
-      decimals: 0
+      decimal_places:
+        type: exact
+        places: 0
     synonyms:
       - "trades"
       - "negociacoes"
@@ -209,7 +264,9 @@ measures:
     comment: "Volume de ordens de compra (taker buy)"
     format:
       type: number
-      decimals: 4
+      decimal_places:
+        type: exact
+        places: 4
     synonyms:
       - "buy volume"
       - "compras"
@@ -221,7 +278,9 @@ measures:
     comment: "Volume de ordens de venda (taker sell)"
     format:
       type: number
-      decimals: 4
+      decimal_places:
+        type: exact
+        places: 4
     synonyms:
       - "sell volume"
       - "vendas"
@@ -232,8 +291,10 @@ measures:
     display_name: "Desequilíbrio Taker"
     comment: "Razão entre compras e vendas. Positivo = pressão compradora, Negativo = pressão vendedora."
     format:
-      type: percent
-      decimals: 2
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "imbalance"
       - "fluxo"
@@ -241,18 +302,59 @@ measures:
       - "direcao"
       - "bulls vs bears"
 
+  - name: pressao_compradora_pct
+    expr: SUM(buy_volume) / NULLIF(SUM(volume), 0) * 100
+    display_name: "Pressão Compradora (%)"
+    comment: "Percentual do volume que é de compra"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "demanda percentual"
+      - "bullish pressure"
+
+  - name: pressao_vendedora_pct
+    expr: SUM(sell_volume) / NULLIF(SUM(volume), 0) * 100
+    display_name: "Pressão Vendedora (%)"
+    comment: "Percentual do volume que é de venda"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "oferta percentual"
+      - "bearish pressure"
+
   - name: qtd_block_trades
     expr: SUM(block_trade_count)
     display_name: "Qtd Block Trades"
     comment: "Número de operações de grande porte (sinaliza atividade institucional)"
     format:
       type: number
-      decimals: 0
+      decimal_places:
+        type: exact
+        places: 0
     synonyms:
       - "block trades"
       - "institucional"
       - "whale"
       - "baleia"
+
+  - name: participacao_block_trades
+    expr: SUM(block_trade_count) / NULLIF(SUM(trade_count), 0) * 100
+    display_name: "Participação Block Trades (%)"
+    comment: "Percentual de trades que são block trades"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "institucional percentual"
+      - "whale activity"
 
 # ----- Volatilidade e range -----------------------------------------------
   - name: range_usd
@@ -261,8 +363,10 @@ measures:
     comment: "Amplitude de preço no período (máximo - mínimo)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "amplitude"
       - "variacao"
@@ -273,8 +377,10 @@ measures:
     display_name: "Range (%)"
     comment: "Amplitude de preço como percentual do mínimo"
     format:
-      type: percent
-      decimals: 2
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "volatilidade"
       - "oscilacao percentual"
@@ -284,14 +390,43 @@ measures:
     display_name: "Retorno Período (%)"
     comment: "Retorno percentual do período (fechamento vs abertura)"
     format:
-      type: percent
-      decimals: 2
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "retorno"
       - "ganho"
       - "perda"
       - "performance"
       - "variacao preco"
+
+  - name: desvio_padrao_preco
+    expr: STDDEV(close_price)
+    display_name: "Desvio Padrão Preço"
+    comment: "Desvio padrão dos preços de fechamento (volatilidade histórica)"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "volatilidade historica"
+      - "dispersao"
+
+  - name: coeficiente_variacao
+    expr: STDDEV(close_price) / NULLIF(AVG(close_price), 0) * 100
+    display_name: "Coeficiente de Variação"
+    comment: "Volatilidade relativa (desvio padrão / média)"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "volatilidade relativa"
+      - "cv"
 
 # ----- Métricas de intensidade --------------------------------------------
   - name: volume_por_trade
@@ -300,7 +435,9 @@ measures:
     comment: "Tamanho médio das operações em BTC"
     format:
       type: number
-      decimals: 6
+      decimal_places:
+        type: exact
+        places: 6
     synonyms:
       - "tamanho medio"
       - "ticket medio"
@@ -312,9 +449,99 @@ measures:
     comment: "Frequência média de negociações (baseado em janela de 15min)"
     format:
       type: number
-      decimals: 1
+      decimal_places:
+        type: exact
+        places: 1
     synonyms:
       - "frequencia"
       - "ritmo"
       - "atividade"
+
+  - name: liquidez_score
+    expr: (SUM(volume) * SUM(trade_count)) / 1000000
+    display_name: "Score de Liquidez"
+    comment: "Produto volume × qtd_trades (indicador de profundidade de mercado)"
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "liquidez"
+      - "profundidade"
+
+# ----- Análise técnica ---------------------------------------------------
+  - name: corpo_candle_pct
+    expr: ABS(MAX_BY(close_price, window_start) - MIN_BY(open_price, window_start)) / NULLIF(MAX(high_price) - MIN(low_price), 0) * 100
+    display_name: "Corpo do Candle (%)"
+    comment: "Tamanho do corpo em relação ao range total (>70% = candle forte)"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "body size"
+      - "forca candle"
+
+  - name: sombra_superior_pct
+    expr: (MAX(high_price) - GREATEST(MAX_BY(close_price, window_start), MIN_BY(open_price, window_start))) / NULLIF(MAX(high_price) - MIN(low_price), 0) * 100
+    display_name: "Sombra Superior (%)"
+    comment: "Tamanho da sombra superior em relação ao range total"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "upper wick"
+      - "pavio superior"
+
+  - name: sombra_inferior_pct
+    expr: (LEAST(MAX_BY(close_price, window_start), MIN_BY(open_price, window_start)) - MIN(low_price)) / NULLIF(MAX(high_price) - MIN(low_price), 0) * 100
+    display_name: "Sombra Inferior (%)"
+    comment: "Tamanho da sombra inferior em relação ao range total"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "lower wick"
+      - "pavio inferior"
+
+  - name: tipo_candle
+    expr: CASE WHEN MAX_BY(close_price, window_start) > MIN_BY(open_price, window_start) THEN 'Bullish' WHEN MAX_BY(close_price, window_start) < MIN_BY(open_price, window_start) THEN 'Bearish' ELSE 'Doji' END
+    display_name: "Tipo de Candle"
+    comment: "Bullish (verde), Bearish (vermelho) ou Doji (neutro)"
+    synonyms:
+      - "direcao candle"
+      - "cor candle"
+
+# ----- Eficiência e qualidade ---------------------------------------------
+  - name: eficiencia_preco
+    expr: ABS(MAX_BY(close_price, window_start) - MIN_BY(open_price, window_start)) / NULLIF(MAX(high_price) - MIN(low_price), 0)
+    display_name: "Eficiência de Preço"
+    comment: "Razão movimento direcional / range total (1 = eficiente, 0 = errante)"
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 3
+    synonyms:
+      - "eficiencia movimento"
+      - "direcionalidade"
+
+  - name: distancia_vwap_pct
+    expr: (MAX_BY(close_price, window_start) - (SUM(notional_usd) / NULLIF(SUM(volume), 0))) / NULLIF(SUM(notional_usd) / NULLIF(SUM(volume), 0), 0) * 100
+    display_name: "Distância ao VWAP (%)"
+    comment: "Distância do fechamento ao VWAP. Positivo = acima, Negativo = abaixo"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "desvio vwap"
+      - "premium discount"
 $$;

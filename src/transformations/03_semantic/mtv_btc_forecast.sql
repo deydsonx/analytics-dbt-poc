@@ -108,8 +108,10 @@ measures:
     comment: "Previsão média do preço de fechamento. AVG mantém curva suave em roll-ups."
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "forecast"
       - "previsao"
@@ -122,8 +124,10 @@ measures:
     comment: "Primeiro valor previsto do período (útil para abertura de sparkline)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "primeiro preco"
       - "abertura previsao"
@@ -134,11 +138,41 @@ measures:
     comment: "Último valor previsto do período (útil para fechamento de sparkline)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "ultimo preco"
       - "fechamento previsao"
+
+  - name: preco_previsto_min
+    expr: MIN(y_forecast)
+    display_name: "Preço Previsto Mínimo"
+    comment: "Menor preço previsto no período"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "menor previsao"
+      - "piso previsto"
+
+  - name: preco_previsto_max
+    expr: MAX(y_forecast)
+    display_name: "Preço Previsto Máximo"
+    comment: "Maior preço previsto no período"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "maior previsao"
+      - "teto previsto"
 
 # ----- Intervalo de confiança 95% -----------------------------------------
   - name: limite_inferior_95
@@ -147,8 +181,10 @@ measures:
     comment: "Limite inferior do intervalo de predição com 95% de confiança"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "piso"
       - "minimo esperado"
@@ -160,8 +196,10 @@ measures:
     comment: "Limite superior do intervalo de predição com 95% de confiança"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "teto"
       - "maximo esperado"
@@ -174,8 +212,10 @@ measures:
     comment: "Largura do intervalo de predição em USD. Maior = modelo menos confiante."
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "incerteza"
       - "amplitude"
@@ -187,11 +227,27 @@ measures:
     display_name: "Largura Intervalo (%)"
     comment: "Largura do intervalo como % do preço previsto. Comparável entre regimes de preço."
     format:
-      type: percent
-      decimals: 2
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "incerteza percentual"
       - "erro relativo"
+
+  - name: score_confianca
+    expr: 100 - (AVG((y_upper - y_lower) / NULLIF(y_forecast, 0)) * 100)
+    display_name: "Score de Confiança"
+    comment: "Métrica invertida de incerteza (100 - largura_intervalo_pct). Quanto maior, mais confiante o modelo."
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "confiabilidade"
+      - "certeza"
+      - "precisao modelo"
 
 # ----- Direção prevista ---------------------------------------------------
   - name: variacao_prevista_pct
@@ -199,13 +255,93 @@ measures:
     display_name: "Variação Prevista (%)"
     comment: "Variação percentual entre primeiro e último preço previsto do período"
     format:
-      type: percent
-      decimals: 2
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "direcao"
       - "tendencia"
       - "vai subir"
       - "vai cair"
+
+  - name: variacao_prevista_usd
+    expr: MAX_BY(y_forecast, ds) - MIN_BY(y_forecast, ds)
+    display_name: "Variação Prevista (USD)"
+    comment: "Variação absoluta em USD entre primeiro e último preço previsto"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "delta preco"
+      - "diferenca absoluta"
+
+  - name: sinal_tendencia
+    expr: CASE WHEN (MAX_BY(y_forecast, ds) - MIN_BY(y_forecast, ds)) > 0 THEN 'Alta' WHEN (MAX_BY(y_forecast, ds) - MIN_BY(y_forecast, ds)) < 0 THEN 'Baixa' ELSE 'Neutro' END
+    display_name: "Sinal de Tendência"
+    comment: "Direção esperada da previsão: Alta, Baixa ou Neutro"
+    synonyms:
+      - "direcao mercado"
+      - "bullish ou bearish"
+
+  - name: volatilidade_prevista
+    expr: STDDEV(y_forecast)
+    display_name: "Volatilidade Prevista"
+    comment: "Desvio padrão dos preços previstos no período (proxy de volatilidade esperada)"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "desvio"
+      - "dispersao"
+      - "instabilidade"
+
+# ----- Potencial de ganho/perda -------------------------------------------
+  - name: potencial_upside_pct
+    expr: (AVG(y_upper) - AVG(y_forecast)) / NULLIF(AVG(y_forecast), 0) * 100
+    display_name: "Potencial Upside (%)"
+    comment: "Ganho potencial até limite superior (cenário otimista)"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "ganho maximo"
+      - "cenario otimista"
+
+  - name: potencial_downside_pct
+    expr: (AVG(y_forecast) - AVG(y_lower)) / NULLIF(AVG(y_forecast), 0) * 100
+    display_name: "Potencial Downside (%)"
+    comment: "Perda potencial até limite inferior (cenário pessimista)"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "perda maxima"
+      - "cenario pessimista"
+      - "risco"
+
+  - name: assimetria_risco
+    expr: (AVG(y_upper) - AVG(y_forecast)) / NULLIF(AVG(y_forecast) - AVG(y_lower), 1)
+    display_name: "Assimetria de Risco"
+    comment: "Razão entre upside e downside. > 1 = mais upside, < 1 = mais downside"
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "risco retorno"
+      - "simetria"
 
 # ----- Cobertura e qualidade ----------------------------------------------
   - name: qtd_pontos_previsao
@@ -214,7 +350,9 @@ measures:
     comment: "Quantidade de pontos de previsão no período (útil para QA)"
     format:
       type: number
-      decimals: 0
+      decimal_places:
+        type: exact
+        places: 0
     synonyms:
       - "quantidade"
       - "pontos"
@@ -226,9 +364,24 @@ measures:
     comment: "Extensão temporal do forecast em minutos"
     format:
       type: number
-      decimals: 0
+      decimal_places:
+        type: exact
+        places: 0
     synonyms:
       - "duracao"
       - "cobertura"
       - "extensao"
+
+  - name: horizonte_horas
+    expr: (UNIX_TIMESTAMP(MAX(ds)) - UNIX_TIMESTAMP(MIN(ds))) / 3600
+    display_name: "Horizonte (horas)"
+    comment: "Extensão temporal do forecast em horas"
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "duracao horas"
+      - "cobertura temporal"
 $$;

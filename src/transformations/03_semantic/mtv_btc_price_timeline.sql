@@ -97,8 +97,10 @@ measures:
     comment: "Preço médio do período (histórico = close, previsão = forecast)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "valor"
       - "cotacao"
@@ -110,8 +112,10 @@ measures:
     comment: "Primeiro preço do período"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
 
   - name: preco_fim
     expr: MAX_BY(preco, ts)
@@ -119,8 +123,80 @@ measures:
     comment: "Último preço do período"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+
+  - name: preco_min
+    expr: MIN(preco)
+    display_name: "Preço Mínimo"
+    comment: "Menor preço observado no período"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "minimo"
+      - "piso"
+
+  - name: preco_max
+    expr: MAX(preco)
+    display_name: "Preço Máximo"
+    comment: "Maior preço observado no período"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "maximo"
+      - "teto"
+
+  # ----- Variação e movimento -------------------------------------------------
+  - name: variacao_periodo_pct
+    expr: (MAX_BY(preco, ts) - MIN_BY(preco, ts)) / NULLIF(MIN_BY(preco, ts), 0) * 100
+    display_name: "Variação Período (%)"
+    comment: "Variação percentual entre primeiro e último preço"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "retorno"
+      - "performance"
+      - "mudanca"
+
+  - name: variacao_periodo_usd
+    expr: MAX_BY(preco, ts) - MIN_BY(preco, ts)
+    display_name: "Variação Período (USD)"
+    comment: "Variação absoluta em USD entre primeiro e último preço"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "delta"
+      - "diferenca"
+
+  - name: amplitude_pct
+    expr: (MAX(preco) - MIN(preco)) / NULLIF(MIN(preco), 0) * 100
+    display_name: "Amplitude (%)"
+    comment: "Range total do período como percentual do mínimo"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "range"
+      - "volatilidade"
 
   # ----- Intervalo de confiança (só para forecast) ---------------------------
   - name: limite_inferior
@@ -129,8 +205,10 @@ measures:
     comment: "Limite inferior do intervalo de confiança (NULL para histórico)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "piso"
       - "lower bound"
@@ -141,11 +219,91 @@ measures:
     comment: "Limite superior do intervalo de confiança (NULL para histórico)"
     format:
       type: currency
-      currency: USD
-      decimals: 2
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
     synonyms:
       - "teto"
       - "upper bound"
+
+  - name: largura_banda
+    expr: AVG(preco_upper - preco_lower)
+    display_name: "Largura da Banda"
+    comment: "Largura do intervalo de confiança em USD (só para previsão)"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "incerteza"
+      - "spread"
+
+  - name: largura_banda_pct
+    expr: AVG((preco_upper - preco_lower) / NULLIF(preco, 0)) * 100
+    display_name: "Largura da Banda (%)"
+    comment: "Largura do intervalo como % do preço (só para previsão)"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "incerteza relativa"
+
+  # ----- Métricas estatísticas -----------------------------------------------
+  - name: desvio_padrao
+    expr: STDDEV(preco)
+    display_name: "Desvio Padrão"
+    comment: "Desvio padrão dos preços no período"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "volatilidade"
+      - "dispersao"
+
+  - name: coef_variacao
+    expr: STDDEV(preco) / NULLIF(AVG(preco), 0) * 100
+    display_name: "Coeficiente de Variação"
+    comment: "Volatilidade relativa (desvio / média)"
+    format:
+      type: percentage
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "cv"
+      - "volatilidade relativa"
+
+  # ----- Tendência e direção -----------------------------------------------
+  - name: direcao
+    expr: CASE WHEN MAX_BY(preco, ts) > MIN_BY(preco, ts) THEN 'Alta' WHEN MAX_BY(preco, ts) < MIN_BY(preco, ts) THEN 'Baixa' ELSE 'Neutro' END
+    display_name: "Direção"
+    comment: "Tendência do período: Alta, Baixa ou Neutro"
+    synonyms:
+      - "tendencia"
+      - "movimento"
+      - "bullish bearish"
+
+  - name: momentum
+    expr: (MAX_BY(preco, ts) - MIN_BY(preco, ts)) / NULLIF((UNIX_TIMESTAMP(MAX(ts)) - UNIX_TIMESTAMP(MIN(ts))) / 3600, 0)
+    display_name: "Momentum (USD/hora)"
+    comment: "Taxa de variação do preço por hora"
+    format:
+      type: currency
+      currency_code: USD
+      decimal_places:
+        type: exact
+        places: 2
+    synonyms:
+      - "velocidade"
+      - "taxa variacao"
 
   # ----- Métricas auxiliares -------------------------------------------------
   - name: qtd_pontos
@@ -154,5 +312,29 @@ measures:
     comment: "Quantidade de pontos de dados no período"
     format:
       type: number
-      decimals: 0
+      decimal_places:
+        type: exact
+        places: 0
+
+  - name: duracao_horas
+    expr: (UNIX_TIMESTAMP(MAX(ts)) - UNIX_TIMESTAMP(MIN(ts))) / 3600
+    display_name: "Duração (horas)"
+    comment: "Extensão temporal dos dados em horas"
+    format:
+      type: number
+      decimal_places:
+        type: exact
+        places: 1
+    synonyms:
+      - "periodo"
+      - "janela temporal"
+
+  # ----- Comparação Histórico vs Forecast ----------------------------------
+  - name: tem_intervalo_confianca
+    expr: CASE WHEN AVG(preco_upper) IS NOT NULL THEN 'Sim' ELSE 'Não' END
+    display_name: "Tem IC 95%"
+    comment: "Indica se o registro tem intervalo de confiança (Previsão = Sim, Histórico = Não)"
+    synonyms:
+      - "possui banda"
+      - "forecast flag"
 $$;

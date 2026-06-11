@@ -1,396 +1,162 @@
 {
   "datasets": [
     {
-      "name": "ds_granularidades",
-      "displayName": "Opções de granularidade",
-      "queryLines": [
-        "SELECT * FROM VALUES ('1 minuto'), ('5 minutos'), ('10 minutos'), ('15 minutos'), ('30 minutos'), ('60 minutos') AS t(rotulo)"
-      ]
+      "name": "ds_kpis_24h",
+      "displayName": "KPIs 24h",
+      "query": "SELECT\n    MEASURE(preco_fechamento)        AS ultimo_preco,\n    MEASURE(retorno_periodo)         AS variacao_24h_pct,\n    MEASURE(volume_usd)              AS volume_24h_usd,\n    MEASURE(pressao_compradora_pct)  AS pressao_compra_pct,\n    MEASURE(pressao_vendedora_pct)   AS pressao_venda_pct,\n    MEASURE(qtd_trades)              AS trades_24h\nFROM z_bitcoin.gold.mtv_btc_intraday\nWHERE ts_5m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR"
     },
     {
-      "name": "ds_periodos",
-      "displayName": "Opções de período histórico",
-      "queryLines": [
-        "SELECT * FROM VALUES ('1 hora'), ('6 horas'), ('12 horas'), ('24 horas'), ('7 dias') AS t(rotulo)"
-      ]
+      "name": "ds_preco_timeline",
+      "displayName": "Preco Timeline (Historico + Forecast)",
+      "query": "WITH historico AS (\n    SELECT\n        ts_15m AS ts,\n        'Historico' AS tipo_dado,\n        MEASURE(preco_fechamento) AS preco,\n        CAST(NULL AS DOUBLE) AS limite_inferior,\n        CAST(NULL AS DOUBLE) AS limite_superior\n    FROM z_bitcoin.gold.mtv_btc_intraday\n    WHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 7 DAY\n    GROUP BY ALL\n),\nforecast AS (\n    SELECT\n        forecast_ts_15m AS ts,\n        'Previsao' AS tipo_dado,\n        MEASURE(preco_previsto) AS preco,\n        MEASURE(limite_inferior_95) AS limite_inferior,\n        MEASURE(limite_superior_95) AS limite_superior\n    FROM z_bitcoin.gold.mtv_btc_forecast\n    GROUP BY ALL\n)\nSELECT * FROM historico\nUNION ALL\nSELECT * FROM forecast\nORDER BY ts"
     },
     {
-      "name": "ds_kpis",
-      "displayName": "KPIs principais (24h)",
-      "queryLines": [
-        "WITH ult AS (  SELECT MAX_BY(price, trade_ts) AS ultimo_preco FROM z_bitcoin.gold.vw_trades_realtime WHERE trade_ts >= current_timestamp() - INTERVAL 2 DAYS), janela_24h AS (  SELECT    MIN_BY(price, trade_ts) AS preco_abertura_24h,    SUM(notional_usd) AS volume_24h_usd,    (SUM(CASE WHEN side='BUY' THEN quantity ELSE 0 END)     - SUM(CASE WHEN side='SELL' THEN quantity ELSE 0 END))     / NULLIF(SUM(quantity), 0) AS pressao_compra_venda  FROM z_bitcoin.gold.vw_trades_realtime  WHERE trade_ts >= current_timestamp() - INTERVAL 24 HOURS) SELECT  ult.ultimo_preco,  (ult.ultimo_preco - janela_24h.preco_abertura_24h) / NULLIF(janela_24h.preco_abertura_24h, 0) AS variacao_24h_pct,  janela_24h.volume_24h_usd,  janela_24h.pressao_compra_venda FROM ult, janela_24h"
-      ]
+      "name": "ds_fluxo_compra_venda",
+      "displayName": "Fluxo Compra vs Venda",
+      "query": "SELECT\n    ts_15m,\n    MEASURE(volume_compra)  AS volume_compra,\n    MEASURE(volume_venda)   AS volume_venda,\n    MEASURE(volume_compra) - MEASURE(volume_venda) AS pressao_liquida\nFROM z_bitcoin.gold.mtv_btc_intraday\nWHERE ts_15m >= CURRENT_TIMESTAMP() - INTERVAL 24 HOUR\nGROUP BY ALL\nORDER BY ts_15m"
     },
     {
-      "name": "ds_serie_preco",
-      "displayName": "Série de preço (realizado + previsto)",
-      "queryLines": [
-        "WITH gran AS (SELECT CASE :granularidade WHEN '1 minuto' THEN 60 WHEN '5 minutos' THEN 300 WHEN '10 minutos' THEN 600 WHEN '15 minutos' THEN 900 WHEN '30 minutos' THEN 1800 WHEN '60 minutos' THEN 3600 ELSE 300 END AS segundos), periodo AS (SELECT CASE :periodo WHEN '1 hora' THEN 1 WHEN '6 horas' THEN 6 WHEN '12 horas' THEN 12 WHEN '24 horas' THEN 24 WHEN '7 dias' THEN 168 ELSE 24 END AS horas), realizado AS (SELECT CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(trade_ts) / (SELECT segundos FROM gran)) * (SELECT segundos FROM gran)) AS TIMESTAMP) AS ts, MAX_BY(price, trade_ts) AS preco_fechamento, SUM(notional_usd) / NULLIF(SUM(quantity), 0) AS vwap, CAST(NULL AS DOUBLE) AS previsao, CAST(NULL AS DOUBLE) AS banda_inferior, CAST(NULL AS DOUBLE) AS banda_superior FROM z_bitcoin.gold.vw_trades_realtime WHERE trade_ts >= dateadd(hour, -(SELECT horas FROM periodo), current_timestamp()) AND trade_ts <= current_timestamp() GROUP BY 1), previsto AS (SELECT ds AS ts, CAST(NULL AS DOUBLE) AS preco_fechamento, CAST(NULL AS DOUBLE) AS vwap, y_forecast AS previsao, y_lower AS banda_inferior, y_upper AS banda_superior FROM z_bitcoin.gold.f_forecast_5m WHERE ds > current_timestamp()) SELECT * FROM realizado UNION ALL SELECT * FROM previsto ORDER BY ts"
-      ],
-      "parameters": [
-        {
-          "displayName": "Granularidade",
-          "keyword": "granularidade",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "5 minutos"}]
-            }
-          }
-        },
-        {
-          "displayName": "Período",
-          "keyword": "periodo",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "24 horas"}]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "ds_compra_venda",
-      "displayName": "Fluxo de compra e venda",
-      "queryLines": [
-        "WITH gran AS (SELECT CASE :granularidade WHEN '1 minuto' THEN 60 WHEN '5 minutos' THEN 300 WHEN '10 minutos' THEN 600 WHEN '15 minutos' THEN 900 WHEN '30 minutos' THEN 1800 WHEN '60 minutos' THEN 3600 ELSE 300 END AS segundos), periodo AS (SELECT CASE :periodo WHEN '1 hora' THEN 1 WHEN '6 horas' THEN 6 WHEN '12 horas' THEN 12 WHEN '24 horas' THEN 24 WHEN '7 dias' THEN 168 ELSE 24 END AS horas) SELECT CAST(FROM_UNIXTIME(FLOOR(UNIX_TIMESTAMP(trade_ts) / (SELECT segundos FROM gran)) * (SELECT segundos FROM gran)) AS TIMESTAMP) AS ts, SUM(CASE WHEN side='BUY' THEN quantity ELSE 0 END) AS volume_compra, -1 * SUM(CASE WHEN side='SELL' THEN quantity ELSE 0 END) AS volume_venda, SUM(CASE WHEN side='BUY' THEN quantity ELSE 0 END) - SUM(CASE WHEN side='SELL' THEN quantity ELSE 0 END) AS delta_liquido FROM z_bitcoin.gold.vw_trades_realtime WHERE trade_ts >= dateadd(hour, -(SELECT horas FROM periodo), current_timestamp()) AND trade_ts <= current_timestamp() GROUP BY 1 ORDER BY 1"
-      ],
-      "parameters": [
-        {
-          "displayName": "Granularidade",
-          "keyword": "granularidade",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "5 minutos"}]
-            }
-          }
-        },
-        {
-          "displayName": "Período",
-          "keyword": "periodo",
-          "dataType": "STRING",
-          "defaultSelection": {
-            "values": {
-              "dataType": "STRING",
-              "values": [{"value": "24 horas"}]
-            }
-          }
-        }
-      ]
-    },
-    {
-      "name": "ds_distribuicao",
-      "displayName": "Distribuição por janela (rolling)",
-      "queryLines": [
-        "WITH agora AS (SELECT MAX(trade_ts) AS ts_agora, MAX_BY(price, trade_ts) AS preco_atual FROM z_bitcoin.gold.vw_trades_realtime WHERE trade_ts >= current_timestamp() - INTERVAL 2 DAYS), base AS (SELECT '10 min' AS janela, 1 AS ordem, MIN_BY(t.price, t.trade_ts) AS preco_abertura, SUM(t.quantity) AS volume_btc FROM z_bitcoin.gold.vw_trades_realtime t CROSS JOIN agora a WHERE t.trade_ts >= dateadd(minute, -10, a.ts_agora) AND t.trade_ts >= current_timestamp() - INTERVAL 1 DAY UNION ALL SELECT '20 min', 2, MIN_BY(t.price, t.trade_ts), SUM(t.quantity) FROM z_bitcoin.gold.vw_trades_realtime t CROSS JOIN agora a WHERE t.trade_ts >= dateadd(minute, -20, a.ts_agora) AND t.trade_ts >= current_timestamp() - INTERVAL 1 DAY UNION ALL SELECT '1 hora', 3, MIN_BY(t.price, t.trade_ts), SUM(t.quantity) FROM z_bitcoin.gold.vw_trades_realtime t CROSS JOIN agora a WHERE t.trade_ts >= dateadd(minute, -60, a.ts_agora) AND t.trade_ts >= current_timestamp() - INTERVAL 1 DAY UNION ALL SELECT '4 horas', 4, MIN_BY(t.price, t.trade_ts), SUM(t.quantity) FROM z_bitcoin.gold.vw_trades_realtime t CROSS JOIN agora a WHERE t.trade_ts >= dateadd(minute, -240, a.ts_agora) AND t.trade_ts >= current_timestamp() - INTERVAL 1 DAY UNION ALL SELECT '1 dia', 5, MIN_BY(t.price, t.trade_ts), SUM(t.quantity) FROM z_bitcoin.gold.vw_trades_realtime t CROSS JOIN agora a WHERE t.trade_ts >= dateadd(day, -1, a.ts_agora) AND t.trade_ts >= current_timestamp() - INTERVAL 2 DAY) SELECT b.janela, b.ordem, b.preco_abertura, a.preco_atual, (a.preco_atual - b.preco_abertura) / NULLIF(b.preco_abertura, 0) AS variacao_pct, b.volume_btc, CASE WHEN a.preco_atual > b.preco_abertura THEN '▲ Alta' WHEN a.preco_atual < b.preco_abertura THEN '▼ Baixa' ELSE '─ Estável' END AS resultado FROM base b CROSS JOIN agora a ORDER BY b.ordem"
-      ]
+      "name": "ds_rolling_summary",
+      "displayName": "Tabela Rolling",
+      "query": "WITH janelas AS (\n    SELECT '10min' AS janela, 10 AS minutos, 1 AS ordem UNION ALL\n    SELECT '20min', 20, 2 UNION ALL\n    SELECT '1h', 60, 3 UNION ALL\n    SELECT '4h', 240, 4 UNION ALL\n    SELECT '1d', 1440, 5\n),\ndados AS (\n    SELECT\n        ts_5m,\n        MEASURE(preco_abertura)   AS abertura,\n        MEASURE(preco_fechamento) AS fechamento,\n        MEASURE(volume_btc)       AS volume\n    FROM z_bitcoin.gold.mtv_btc_intraday\n    WHERE ts_5m >= CURRENT_TIMESTAMP() - INTERVAL 1 DAY\n    GROUP BY ALL\n)\nSELECT\n    j.janela,\n    MIN(d.abertura) AS abertura_usd,\n    MAX(d.fechamento) AS atual_usd,\n    (MAX(d.fechamento) - MIN(d.abertura)) / NULLIF(MIN(d.abertura), 0) * 100 AS variacao_pct,\n    SUM(d.volume) AS volume_btc,\n    CASE\n        WHEN MAX(d.fechamento) > MIN(d.abertura) * 1.001 THEN 'Alta'\n        WHEN MAX(d.fechamento) < MIN(d.abertura) * 0.999 THEN 'Queda'\n        ELSE 'Estavel'\n    END AS resultado\nFROM janelas j\nCROSS JOIN dados d\nWHERE d.ts_5m >= CURRENT_TIMESTAMP() - MAKE_INTERVAL(0, 0, 0, 0, 0, j.minutos)\nGROUP BY j.janela, j.minutos, j.ordem\nORDER BY j.ordem"
     }
   ],
   "pages": [
     {
-      "name": "btc_realtime",
-      "displayName": "BTC Tempo Real",
+      "name": "main_page",
+      "displayName": "PAINEL - Bitcoin (BTC)",
       "layout": [
         {
           "widget": {
-            "name": "txt-titulo",
-            "multilineTextboxSpec": {
-              "lines": [
-                "## Painel BTC — Tempo Real (Bybit)"
-              ]
-            }
-          },
-          "position": {"x": 0, "y": 0, "width": 12, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "txt-subtitulo",
-            "multilineTextboxSpec": {
-              "lines": [
-                "Acompanhamento em tempo real do Bitcoin via stream da Bybit. Ajuste **granularidade** e **período** para o gráfico principal. A faixa à direita do gráfico exibe a previsão das próximas 24h com banda de 95% de confiança."
-              ]
-            }
-          },
-          "position": {"x": 0, "y": 1, "width": 12, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "flt-granularidade",
+            "name": "kpi_ultimo_preco",
             "queries": [
               {
-                "name": "q_gran_valores",
+                "name": "main_query",
                 "query": {
-                  "datasetName": "ds_granularidades",
+                  "datasetName": "ds_kpis_24h",
                   "fields": [
-                    {"name": "rotulo", "expression": "`rotulo`"},
-                    {"name": "rotulo_assoc", "expression": "COUNT_IF(`associative_filter_predicate_group`)"}
+                    {"name": "ultimo_preco", "expression": "`ultimo_preco`"}
                   ],
                   "disaggregated": false
                 }
-              },
-              {
-                "name": "q_gran_serie",
-                "query": {
-                  "datasetName": "ds_serie_preco",
-                  "parameters": [{"name": "granularidade", "keyword": "granularidade"}],
-                  "disaggregated": false
-                }
-              },
-              {
-                "name": "q_gran_compra_venda",
-                "query": {
-                  "datasetName": "ds_compra_venda",
-                  "parameters": [{"name": "granularidade", "keyword": "granularidade"}],
-                  "disaggregated": false
-                }
               }
             ],
             "spec": {
-              "version": 2,
-              "widgetType": "filter-single-select",
-              "selection": {
-                "defaultSelection": {
-                  "values": {"dataType": "STRING", "values": [{"value": "5 minutos"}]}
-                }
-              },
+              "version": 3,
+              "widgetType": "counter",
               "encodings": {
-                "fields": [
-                  {"fieldName": "rotulo", "displayName": "Granularidade", "queryName": "q_gran_valores"},
-                  {"parameterName": "granularidade", "queryName": "q_gran_serie"},
-                  {"parameterName": "granularidade", "queryName": "q_gran_compra_venda"}
-                ]
+                "value": {"fieldName": "ultimo_preco", "displayName": "Ultimo Preco (USD)"}
               },
-              "frame": {"showTitle": true, "title": "Granularidade"}
+              "frame": {
+                "showTitle": true,
+                "title": "Ultimo Preco (USD)"
+              }
             }
           },
-          "position": {"x": 0, "y": 2, "width": 4, "height": 1}
+          "position": {"x": 0, "y": 0, "width": 1, "height": 2}
         },
         {
           "widget": {
-            "name": "flt-periodo",
+            "name": "kpi_variacao_24h",
             "queries": [
               {
-                "name": "q_per_valores",
+                "name": "main_query",
                 "query": {
-                  "datasetName": "ds_periodos",
+                  "datasetName": "ds_kpis_24h",
                   "fields": [
-                    {"name": "rotulo", "expression": "`rotulo`"},
-                    {"name": "rotulo_assoc", "expression": "COUNT_IF(`associative_filter_predicate_group`)"}
+                    {"name": "variacao_24h_pct", "expression": "`variacao_24h_pct`"}
                   ],
                   "disaggregated": false
                 }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "variacao_24h_pct", "displayName": "Variacao 24h (%)"}
               },
+              "frame": {
+                "showTitle": true,
+                "title": "Variacao 24h (%)"
+              }
+            }
+          },
+          "position": {"x": 1, "y": 0, "width": 1, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "kpi_volume_24h",
+            "queries": [
               {
-                "name": "q_per_serie",
+                "name": "main_query",
                 "query": {
-                  "datasetName": "ds_serie_preco",
-                  "parameters": [{"name": "periodo", "keyword": "periodo"}],
+                  "datasetName": "ds_kpis_24h",
+                  "fields": [
+                    {"name": "volume_24h_usd", "expression": "`volume_24h_usd`"}
+                  ],
                   "disaggregated": false
                 }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {"fieldName": "volume_24h_usd", "displayName": "Volume 24h (USD)"}
               },
+              "frame": {
+                "showTitle": true,
+                "title": "Volume 24h (USD)"
+              }
+            }
+          },
+          "position": {"x": 2, "y": 0, "width": 1, "height": 2}
+        },
+        {
+          "widget": {
+            "name": "kpi_pressao",
+            "queries": [
               {
-                "name": "q_per_compra_venda",
+                "name": "main_query",
                 "query": {
-                  "datasetName": "ds_compra_venda",
-                  "parameters": [{"name": "periodo", "keyword": "periodo"}],
+                  "datasetName": "ds_kpis_24h",
+                  "fields": [
+                    {"name": "pressao_compra_pct", "expression": "`pressao_compra_pct`"},
+                    {"name": "pressao_venda_pct", "expression": "`pressao_venda_pct`"}
+                  ],
                   "disaggregated": false
                 }
               }
             ],
             "spec": {
-              "version": 2,
-              "widgetType": "filter-single-select",
-              "selection": {
-                "defaultSelection": {
-                  "values": {"dataType": "STRING", "values": [{"value": "24 horas"}]}
-                }
-              },
-              "encodings": {
-                "fields": [
-                  {"fieldName": "rotulo", "displayName": "Período", "queryName": "q_per_valores"},
-                  {"parameterName": "periodo", "queryName": "q_per_serie"},
-                  {"parameterName": "periodo", "queryName": "q_per_compra_venda"}
-                ]
-              },
-              "frame": {"showTitle": true, "title": "Período histórico"}
-            }
-          },
-          "position": {"x": 4, "y": 2, "width": 4, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "txt-hint-filtros",
-            "multilineTextboxSpec": {
-              "lines": [
-                "*Filtros afetam o gráfico de preço e o gráfico de compra/venda. KPIs e tabela de distribuição usam janelas fixas (24h e rolling).*"
-              ]
-            }
-          },
-          "position": {"x": 8, "y": 2, "width": 4, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "kpi-ultimo-preco",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "ds_kpis",
-                  "fields": [{"name": "ultimo_preco", "expression": "`ultimo_preco`"}],
-                  "disaggregated": true
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
+              "version": 3,
               "widgetType": "counter",
               "encodings": {
-                "value": {
-                  "fieldName": "ultimo_preco",
-                  "displayName": "Último Preço",
-                  "format": {
-                    "type": "number-currency",
-                    "currencyCode": "USD",
-                    "abbreviation": "none",
-                    "decimalPlaces": {"type": "fixed", "places": 2}
-                  }
-                }
+                "value": {"fieldName": "pressao_compra_pct", "displayName": "Pressao Compra (%)"}
               },
-              "frame": {"title": "Último Preço (USD)", "showTitle": true}
-            }
-          },
-          "position": {"x": 0, "y": 3, "width": 3, "height": 3}
-        },
-        {
-          "widget": {
-            "name": "kpi-variacao-24h",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "ds_kpis",
-                  "fields": [{"name": "variacao_24h_pct", "expression": "`variacao_24h_pct`"}],
-                  "disaggregated": true
-                }
+              "frame": {
+                "showTitle": true,
+                "title": "Pressao Compra/Venda 24h"
               }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "encodings": {
-                "value": {
-                  "fieldName": "variacao_24h_pct",
-                  "displayName": "Variação 24h",
-                  "format": {
-                    "type": "number-percent",
-                    "decimalPlaces": {"type": "fixed", "places": 2}
-                  }
-                }
-              },
-              "frame": {"title": "Variação 24h (%)", "showTitle": true}
             }
           },
-          "position": {"x": 3, "y": 3, "width": 3, "height": 3}
+          "position": {"x": 3, "y": 0, "width": 1, "height": 2}
         },
         {
           "widget": {
-            "name": "kpi-volume-24h",
+            "name": "chart_preco_timeline",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds_kpis",
-                  "fields": [{"name": "volume_24h_usd", "expression": "`volume_24h_usd`"}],
-                  "disaggregated": true
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "encodings": {
-                "value": {
-                  "fieldName": "volume_24h_usd",
-                  "displayName": "Volume 24h",
-                  "format": {
-                    "type": "number-currency",
-                    "currencyCode": "USD",
-                    "abbreviation": "compact",
-                    "decimalPlaces": {"type": "max", "places": 2}
-                  }
-                }
-              },
-              "frame": {"title": "Volume Negociado 24h (USD)", "showTitle": true}
-            }
-          },
-          "position": {"x": 6, "y": 3, "width": 3, "height": 3}
-        },
-        {
-          "widget": {
-            "name": "kpi-pressao",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "ds_kpis",
-                  "fields": [{"name": "pressao_compra_venda", "expression": "`pressao_compra_venda`"}],
-                  "disaggregated": true
-                }
-              }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "counter",
-              "encodings": {
-                "value": {
-                  "fieldName": "pressao_compra_venda",
-                  "displayName": "Pressão Compra/Venda",
-                  "format": {
-                    "type": "number-percent",
-                    "decimalPlaces": {"type": "fixed", "places": 2}
-                  }
-                }
-              },
-              "frame": {"title": "Pressão Compra/Venda 24h", "showTitle": true}
-            }
-          },
-          "position": {"x": 9, "y": 3, "width": 3, "height": 3}
-        },
-        {
-          "widget": {
-            "name": "txt-secao-preco",
-            "multilineTextboxSpec": {
-              "lines": [
-                "### Preço — Realizado e Previsto (24h à frente)"
-              ]
-            }
-          },
-          "position": {"x": 0, "y": 6, "width": 12, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "chart-preco",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "ds_serie_preco",
+                  "datasetName": "ds_preco_timeline",
                   "fields": [
                     {"name": "ts", "expression": "`ts`"},
-                    {"name": "preco_fechamento", "expression": "`preco_fechamento`"},
-                    {"name": "vwap", "expression": "`vwap`"},
-                    {"name": "previsao", "expression": "`previsao`"},
-                    {"name": "banda_inferior", "expression": "`banda_inferior`"},
-                    {"name": "banda_superior", "expression": "`banda_superior`"}
-                  ],
-                  "parameters": [
-                    {"name": "granularidade", "keyword": "granularidade"},
-                    {"name": "periodo", "keyword": "periodo"}
+                    {"name": "tipo_dado", "expression": "`tipo_dado`"},
+                    {"name": "preco", "expression": "`preco`"},
+                    {"name": "limite_inferior", "expression": "`limite_inferior`"},
+                    {"name": "limite_superior", "expression": "`limite_superior`"}
                   ],
                   "disaggregated": true
                 }
@@ -403,137 +169,43 @@
                 "x": {
                   "fieldName": "ts",
                   "scale": {"type": "temporal"},
-                  "displayName": "Tempo"
+                  "displayName": "Data/Hora"
                 },
                 "y": {
+                  "fieldName": "preco",
                   "scale": {"type": "quantitative"},
-                  "fields": [
-                    {"fieldName": "preco_fechamento", "displayName": "Preço (Fechamento)"},
-                    {"fieldName": "vwap", "displayName": "VWAP"},
-                    {"fieldName": "previsao", "displayName": "Previsão"},
-                    {"fieldName": "banda_inferior", "displayName": "Banda Inferior 95%"},
-                    {"fieldName": "banda_superior", "displayName": "Banda Superior 95%"}
-                  ],
-                  "format": {
-                    "type": "number-currency",
-                    "currencyCode": "USD",
-                    "abbreviation": "compact",
-                    "decimalPlaces": {"type": "max", "places": 2}
-                  }
+                  "displayName": "Preco (USD)"
+                },
+                "color": {
+                  "fieldName": "tipo_dado",
+                  "scale": {
+                    "domain": ["Historico", "Previsao"],
+                    "range": ["#2196F3", "#FF9800"]
+                  },
+                  "legend": {"title": "Serie"}
                 }
               },
-              "frame": {"title": "Preço BTC/USD — Realizado + Previsão 24h (banda 95%)", "showTitle": true}
-            }
-          },
-          "position": {"x": 0, "y": 7, "width": 12, "height": 7}
-        },
-        {
-          "widget": {
-            "name": "txt-secao-distribuicao",
-            "multilineTextboxSpec": {
-              "lines": [
-                "### Distribuição por Janela — variação rolling até agora"
-              ]
-            }
-          },
-          "position": {"x": 0, "y": 14, "width": 12, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "tbl-distribuicao",
-            "queries": [
-              {
-                "name": "main_query",
-                "query": {
-                  "datasetName": "ds_distribuicao",
-                  "fields": [
-                    {"name": "janela", "expression": "`janela`"},
-                    {"name": "preco_abertura", "expression": "`preco_abertura`"},
-                    {"name": "preco_atual", "expression": "`preco_atual`"},
-                    {"name": "variacao_pct", "expression": "`variacao_pct`"},
-                    {"name": "volume_btc", "expression": "`volume_btc`"},
-                    {"name": "resultado", "expression": "`resultado`"}
-                  ],
-                  "disaggregated": true
-                }
+              "frame": {
+                "showTitle": true,
+                "title": "Preco BTC - Realizado e Previsto (24h)"
               }
-            ],
-            "spec": {
-              "version": 2,
-              "widgetType": "table",
-              "encodings": {
-                "columns": [
-                  {"fieldName": "janela", "displayName": "Janela"},
-                  {
-                    "fieldName": "preco_abertura",
-                    "displayName": "Abertura (USD)",
-                    "numberFormat": {
-                      "type": "number-currency",
-                      "currencyCode": "USD",
-                      "decimalPlaces": {"type": "fixed", "places": 2}
-                    }
-                  },
-                  {
-                    "fieldName": "preco_atual",
-                    "displayName": "Atual (USD)",
-                    "numberFormat": {
-                      "type": "number-currency",
-                      "currencyCode": "USD",
-                      "decimalPlaces": {"type": "fixed", "places": 2}
-                    }
-                  },
-                  {
-                    "fieldName": "variacao_pct",
-                    "displayName": "Variação %",
-                    "numberFormat": {
-                      "type": "number-percent",
-                      "decimalPlaces": {"type": "fixed", "places": 2}
-                    }
-                  },
-                  {
-                    "fieldName": "volume_btc",
-                    "displayName": "Volume (BTC)",
-                    "numberFormat": {
-                      "type": "number",
-                      "decimalPlaces": {"type": "fixed", "places": 4}
-                    }
-                  },
-                  {"fieldName": "resultado", "displayName": "Resultado"}
-                ]
-              },
-              "frame": {"title": "Distribuição rolling (10min / 20min / 1h / 4h / 1d)", "showTitle": true}
             }
           },
-          "position": {"x": 0, "y": 15, "width": 12, "height": 4}
+          "position": {"x": 0, "y": 2, "width": 4, "height": 6}
         },
         {
           "widget": {
-            "name": "txt-secao-fluxo",
-            "multilineTextboxSpec": {
-              "lines": [
-                "### Fluxo de Compra vs Venda — pressão por bucket (compra acima, venda abaixo)"
-              ]
-            }
-          },
-          "position": {"x": 0, "y": 19, "width": 12, "height": 1}
-        },
-        {
-          "widget": {
-            "name": "chart-compra-venda",
+            "name": "chart_fluxo_compra_venda",
             "queries": [
               {
                 "name": "main_query",
                 "query": {
-                  "datasetName": "ds_compra_venda",
+                  "datasetName": "ds_fluxo_compra_venda",
                   "fields": [
-                    {"name": "ts", "expression": "`ts`"},
+                    {"name": "ts_15m", "expression": "`ts_15m`"},
                     {"name": "volume_compra", "expression": "`volume_compra`"},
-                    {"name": "volume_venda", "expression": "`volume_venda`"},
-                    {"name": "delta_liquido", "expression": "`delta_liquido`"}
-                  ],
-                  "parameters": [
-                    {"name": "granularidade", "keyword": "granularidade"},
-                    {"name": "periodo", "keyword": "periodo"}
+                    {"name": "volume_venda", "expression": "-`volume_venda`"},
+                    {"name": "pressao_liquida", "expression": "`pressao_liquida`"}
                   ],
                   "disaggregated": true
                 }
@@ -544,37 +216,66 @@
               "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "ts",
+                  "fieldName": "ts_15m",
                   "scale": {"type": "temporal"},
-                  "displayName": "Tempo"
+                  "displayName": "Data/Hora"
                 },
                 "y": {
+                  "fieldName": "volume_compra",
                   "scale": {"type": "quantitative"},
-                  "fields": [
-                    {"fieldName": "volume_compra", "displayName": "Compra (BTC)"},
-                    {"fieldName": "volume_venda", "displayName": "Venda (BTC)"}
-                  ],
-                  "format": {
-                    "type": "number",
-                    "decimalPlaces": {"type": "max", "places": 4}
-                  },
-                  "displayName": "Volume (BTC) — compra acima do zero, venda abaixo"
+                  "displayName": "Volume (BTC)"
                 }
               },
-              "frame": {"title": "Compra vs Venda por bucket — assimetria = pressão líquida", "showTitle": true}
+              "frame": {
+                "showTitle": true,
+                "title": "Fluxo de Compra vs Venda (24h)"
+              }
             }
           },
-          "position": {"x": 0, "y": 20, "width": 12, "height": 6}
+          "position": {"x": 0, "y": 8, "width": 2, "height": 4}
+        },
+        {
+          "widget": {
+            "name": "table_rolling_summary",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "ds_rolling_summary",
+                  "fields": [
+                    {"name": "janela", "expression": "`janela`"},
+                    {"name": "abertura_usd", "expression": "`abertura_usd`"},
+                    {"name": "atual_usd", "expression": "`atual_usd`"},
+                    {"name": "variacao_pct", "expression": "`variacao_pct`"},
+                    {"name": "volume_btc", "expression": "`volume_btc`"},
+                    {"name": "resultado", "expression": "`resultado`"}
+                  ],
+                  "disaggregated": true
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "widgetType": "table",
+              "encodings": {
+                "columns": [
+                  {"fieldName": "janela", "displayName": "Janela"},
+                  {"fieldName": "abertura_usd", "displayName": "Abertura (USD)", "format": {"type": "currency", "currencyCode": "USD"}},
+                  {"fieldName": "atual_usd", "displayName": "Atual (USD)", "format": {"type": "currency", "currencyCode": "USD"}},
+                  {"fieldName": "variacao_pct", "displayName": "Variacao (%)", "format": {"type": "percent"}},
+                  {"fieldName": "volume_btc", "displayName": "Volume (BTC)", "format": {"type": "number", "decimalPlaces": 4}},
+                  {"fieldName": "resultado", "displayName": "Resultado"}
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Distribuicao por Janela (Rolling)"
+              }
+            }
+          },
+          "position": {"x": 2, "y": 8, "width": 2, "height": 4}
         }
-      ],
-      "pageType": "PAGE_TYPE_CANVAS",
-      "layoutVersion": "GRID_V1"
+      ]
     }
-  ],
-  "uiSettings": {
-    "theme": {
-      "widgetHeaderAlignment": "ALIGNMENT_UNSPECIFIED"
-    },
-    "applyModeEnabled": false
-  }
+  ]
 }
